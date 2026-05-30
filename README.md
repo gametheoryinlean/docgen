@@ -41,8 +41,11 @@ If you have multiple libraries you want to generate full documentation for:
 lake build Test:docs YourLibraryName:docs
 ```
 
-Note that `doc-gen4` currently always generates documentation for `Lean`, `Init`, `Lake` and `Std`
-in addition to the provided targets.
+`doc-gen4` only generates documentation for modules belonging to your project's
+root package. External dependencies (Mathlib, Batteries, your own deps, etc.)
+and Lean core (`Init`, `Std`, `Lake`, `Lean`) are NOT analyzed and produce no
+HTML in your build. See the **External library linking** section below for how
+references to those declarations resolve.
 
 The root of the built docs will be `docbuild/.lake/build/doc/index.html`.
 However, due to the "Same Origin Policy", the generated website will be partially broken if you just
@@ -71,6 +74,40 @@ documentation of your project.
 Note that we do not recommend this approach and suggest to instead make sure your
 projects always compile by using CI to prevent broken code from being added and `sorry`-ing
 out things that you intend to complete later.
+
+## External library linking
+
+To keep documentation builds fast and outputs small, `doc-gen4` does not
+generate HTML pages for external libraries. Instead, any reference to a
+declaration or module that doc-gen4 did not analyze locally is rewritten to
+point at the Mathlib documentation site:
+
+- Decl reference: `https://leanprover-community.github.io/mathlib4_docs/find/?pattern=<fullName>#doc`
+  — the same mechanism the Lean Zulip uses for `docs#Foo`. The external
+  site's `declaration-data.bmp` + `find.js` resolve the owning module
+  client-side, so doc-gen4 doesn't need to track external module ownership.
+- Module reference: `https://leanprover-community.github.io/mathlib4_docs/<Module/Path>.html`.
+
+The Mathlib documentation site hosts the entire Lean core (`Init`, `Std`,
+`Lake`, `Lean`) plus Mathlib and most commonly-used dependencies, so this
+covers the typical Lean 4 ecosystem.
+
+### Trade-offs
+
+- Build wall-clock is roughly an order of magnitude faster than analyzing
+  every dependency, and disk usage drops by a similar factor. Dogfooding
+  on doc-gen4's own sources: 334 s → 25 s, 225 M → 1.7 M output.
+- The local search index only finds declarations in your own modules. To
+  search the Lean / Mathlib ecosystem, users go to the Mathlib site's search.
+- The find redirect adds one extra hop when a user clicks an external link.
+
+### Pointing at a different external site
+
+The base URL is hardcoded in `DocGen4/Output/External.lean` as
+`externalDocBase`. Edit that constant if your audience uses a different
+documentation host. We deliberately keep this a Lean constant rather than
+an environment variable so the behavior is reproducible and shows up in
+review diffs.
 
 ## Source locations
 
