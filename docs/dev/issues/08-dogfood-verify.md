@@ -63,3 +63,26 @@ relative path), NOT a mathlib URL.
 ## Out of scope
 
 - README update — #9.
+
+---
+
+## Measured results
+
+| Metric | Baseline (main) | After redesign | Delta |
+|--------|----------------:|---------------:|------:|
+| Wall-clock `lake build DocGen4:docs` from clean | 333.79 s | 25.14 s | **13.3x faster** |
+| Disk usage of `.lake/build/doc/` | 225 M | 1.7 M | **132x smaller** |
+| Number of HTML output directories | 5 (DocGen4 + Init/Std/Lake/Lean) | 1 (DocGen4 only) | — |
+| External-decl find-redirect refs in output | 0 | 3042 | — |
+| External-module links in output | 0 | 110+ unique | — |
+
+Spot checks:
+
+- `find/?pattern=Array.foldl#doc` etc. resolve to Mathlib find-redirect ✓
+- Local cross-module links remain relative (`.././DocGen4/Process/DocInfo.html`) ✓
+- `Imports` block in `DocGen4.html` shows `Init` as an external Mathlib link,
+  local `DocGen4.DB` etc. as relative ✓
+- No nested anchors in any output ✓
+- No empty stub HTML pages for external modules ✓
+
+System: M-series Mac, lean toolchain `leanprover/lean4:v4.31.0-rc1`.
