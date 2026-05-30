@@ -212,38 +212,6 @@ target bibPrepass : FilePath := do
       }
     return outputFile
 
-def coreTarget (component : Lean.Name) : FetchM (Job FilePath) := do
-  let exeJob ← «doc-gen4».fetch
-  let bibPrepassJob ← bibPrepass.fetch
-  let buildDir := (← getRootPackage).buildDir
-  -- Building the core targets adds their information to the database file. While it would be
-  -- possible to hash just the relevant content of the database (e.g. using SQLite's SHA3 module)
-  -- and write the result to a file, this adds a significant overhead. Instead, we create an empty
-  -- "marker file" to indicate that the database content has been inserted, and rely on its trace
-  -- changing to trigger rebuilds.
-  let markerFile := buildDir / "doc-data" / s!"core-{component}.doc"
-  bibPrepassJob.bindM fun _ => do
-    exeJob.mapM fun exeFile => do
-      buildFileUnlessUpToDate' markerFile do
-        proc {
-          cmd := exeFile.toString
-          args := #["genCore", "--build", buildDir.toString, component.toString, "api-docs.db"]
-          env := ← getAugmentedEnv
-        }
-        createParentDirs markerFile
-        IO.FS.writeFile markerFile ""
-      return markerFile
-
-/--
-Populates the database with documentation data for core Lean. Returns a set of marker files that
-indicate that the database has been updated for the corresponding modules, allowing Lake to track
-changes and dependencies.
--/
-target coreDocs : Array FilePath := do
-  let coreComponents := #[`Init, `Std, `Lake, `Lean]
-  return ← (Job.collectArray <| ← coreComponents.mapM coreTarget).mapM fun deps =>
-    return deps
-
 /--
 Places the module's documentation content into the package's documentation database.
 
@@ -253,14 +221,13 @@ The marker file participates in Lake's dependency tracking, allowing for increme
 module_facet docInfo (mod) : FilePath := do
   let exeJob ← «doc-gen4».fetch
   let bibPrepassJob ← bibPrepass.fetch
-  let coreJob ← coreDocs.fetch
   let modJob ← mod.leanArts.fetch
   -- Only recurse into imports that belong to the root package; external
   -- dependencies are not analyzed and their declarations link to the
   -- external documentation site (see DocGen4.Output.External).
-  let rootPkgName := (← getRootPackage).name
+  let rootPkgName := (← getRootPackage).baseName
   let imports ← (← mod.imports.fetch).await
-  let ownImports := imports.filter (fun m => m.pkg.name == rootPkgName)
+  let ownImports := imports.filter (fun m => m.pkg.baseName == rootPkgName)
   let depDocJobs := Job.mixArray <| ← ownImports.mapM fun mod => fetch <| mod.facet `docInfo
   let buildDir := (← getRootPackage).buildDir
   -- Building the documentation info for the module adds or updates the relevant content in the
@@ -270,22 +237,21 @@ module_facet docInfo (mod) : FilePath := do
   -- file" to indicate that the database content has been inserted, and rely on its Lake trace
   -- changing to trigger rebuilds.
   let markerFile := buildDir / "doc-data" / s!"{mod.name}.doc"
-  coreJob.bindM fun _ => do
-    depDocJobs.bindM fun _ => do
-      bibPrepassJob.bindM fun _ => do
-        exeJob.bindM fun exeFile => do
-          modJob.mapM fun _ => do
-            buildFileUnlessUpToDate' markerFile do
-              let uriJob ← fetch <| mod.facet `srcUri
-              let srcUri ← uriJob.await
-              proc {
-                cmd := exeFile.toString
-                args := #["single", "--build", buildDir.toString, mod.name.toString, "api-docs.db", srcUri]
-                env := ← getAugmentedEnv
-              }
-              createParentDirs markerFile
-              IO.FS.writeFile markerFile ""
-            return markerFile
+  depDocJobs.bindM fun _ => do
+    bibPrepassJob.bindM fun _ => do
+      exeJob.bindM fun exeFile => do
+        modJob.mapM fun _ => do
+          buildFileUnlessUpToDate' markerFile do
+            let uriJob ← fetch <| mod.facet `srcUri
+            let srcUri ← uriJob.await
+            proc {
+              cmd := exeFile.toString
+              args := #["single", "--build", buildDir.toString, mod.name.toString, "api-docs.db", srcUri]
+              env := ← getAugmentedEnv
+            }
+            createParentDirs markerFile
+            IO.FS.writeFile markerFile ""
+          return markerFile
 
 /--
 Populates the database with information for all modules in a library.
@@ -296,19 +262,18 @@ library_facet docInfo (lib) : Array FilePath := do
 
 /--
 A facet to collect docInfo dependencies for a package (no HTML generation).
-This populates the database with all module data and core docs for all packages
-in the workspace (including dependencies).
+This populates the database with all module data for the root package's
+libraries. External dependencies and Lean core are NOT analyzed — references
+to their declarations are linked externally (see DocGen4.Output.External).
 Returns the database file path.
 -/
 package_facet docInfo (pkg) : FilePath := do
   let ws ← getWorkspace
   let allLibs := ws.packages.flatMap (·.leanLibs)
   let libDocJobs := Job.collectArray <| ← allLibs.mapM (fetch <| ·.facet `docInfo)
-  let coreJobs ← coreDocs.fetch
   let dbPath := pkg.buildDir / "api-docs.db"
-  coreJobs.bindM fun _ => do
-    libDocJobs.mapM fun _ =>
-      return dbPath
+  libDocJobs.mapM fun _ =>
+    return dbPath
 
 library_facet docsHeader (lib) : FilePath := do
   -- Depend on the package docs facet to ensure HTML is generated first
@@ -340,7 +305,6 @@ Returns an array of all generated file paths.
 def generateHtmlDocs (markerName : String) (rootMods : Array Module) (description : String) : FetchM (Job (Array FilePath)) := do
   let exeJob ← «doc-gen4».fetch
   let bibPrepassJob ← bibPrepass.fetch
-  let coreJob ← coreDocs.fetch
   let docInfoJobs := Job.collectArray <| ← rootMods.mapM (fetch <| ·.facet `docInfo)
   let buildDir := (← getRootPackage).buildDir
   let basePath := buildDir / "doc"
@@ -374,31 +338,30 @@ def generateHtmlDocs (markerName : String) (rootMods : Array Module) (descriptio
   let coreRoots := #[`Init, `Std, `Lake, `Lean]
   let rootNames := rootMods.map (·.name) ++ coreRoots
   let manifestFile := buildDir / "doc-manifest.json"
-  coreJob.bindM fun _ => do
-    docInfoJobs.bindM fun _ => do
-      bibPrepassJob.bindM fun _ => do
-        exeJob.mapM fun exeFile => do
-          buildFileUnlessUpToDate' markerFile do
-            logInfo description
-            proc {
-              cmd := exeFile.toString
-              args := #["fromDb", "--build", buildDir.toString, "--manifest", manifestFile.toString, dbPath.toString] ++ rootNames.map (·.toString)
-              env := ← getAugmentedEnv
-            }
-            createParentDirs markerFile
-            IO.FS.writeFile markerFile ""
-          let traces ← staticFiles.mapM computeTrace
-          addTrace <| mixTraceArray traces
-          -- We read the manifest to determine which HTML files were generated because we only
-          -- pass root module names to fromDb, which computes the transitive closure internally.
-          -- This avoids passing potentially thousands of module names on the command line.
-          match Lean.Json.parse <| ← IO.FS.readFile manifestFile with
+  docInfoJobs.bindM fun _ => do
+    bibPrepassJob.bindM fun _ => do
+      exeJob.mapM fun exeFile => do
+        buildFileUnlessUpToDate' markerFile do
+          logInfo description
+          proc {
+            cmd := exeFile.toString
+            args := #["fromDb", "--build", buildDir.toString, "--manifest", manifestFile.toString, dbPath.toString] ++ rootNames.map (·.toString)
+            env := ← getAugmentedEnv
+          }
+          createParentDirs markerFile
+          IO.FS.writeFile markerFile ""
+        let traces ← staticFiles.mapM computeTrace
+        addTrace <| mixTraceArray traces
+        -- We read the manifest to determine which HTML files were generated because we only
+        -- pass root module names to fromDb, which computes the transitive closure internally.
+        -- This avoids passing potentially thousands of module names on the command line.
+        match Lean.Json.parse <| ← IO.FS.readFile manifestFile with
+        | .error _ => return #[dataFile] ++ staticFiles
+        | .ok manifestData =>
+          match Lean.fromJson? manifestData with
           | .error _ => return #[dataFile] ++ staticFiles
-          | .ok manifestData =>
-            match Lean.fromJson? manifestData with
-            | .error _ => return #[dataFile] ++ staticFiles
-            | .ok (manifestDeps : Array System.FilePath) =>
-              return #[dataFile] ++ staticFiles ++ manifestDeps.map (buildDir / ·)
+          | .ok (manifestDeps : Array System.FilePath) =>
+            return #[dataFile] ++ staticFiles ++ manifestDeps.map (buildDir / ·)
 
 /-- Generate HTML for this module and its transitive imports. -/
 module_facet docs (mod) : Array FilePath := do
