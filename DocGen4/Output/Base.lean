@@ -5,6 +5,7 @@ Authors: Henrik Böving
 -/
 import DocGen4.Process
 import DocGen4.Output.ToHtmlFormat
+import DocGen4.Output.External
 import DocGen4.RenderedCode
 
 namespace DocGen4.Output
