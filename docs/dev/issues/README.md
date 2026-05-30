@@ -4,7 +4,7 @@ Goal: stop generating documentation HTML for external libraries (third-party
 dependencies + Lean core), and instead link cross-references directly to those
 libraries' externally-hosted documentation at the Mathlib documentation site.
 
-Master design context: see `docs/dev/design/external-linking.md` (if present).
+Long-form design rationale: [`docs/dev/design/external-linking.md`](../design/external-linking.md).
 
 ## Issue Order (dependency DAG)
 
