@@ -69,8 +69,12 @@ def nameToLink? (s : String) : HtmlM (Option String) := do
             |>.find? (sameEnd ·.getName name)
         if let some info := info? then
           declNameToLink info.getName
-        else return none
-      | _ => return none
+        else
+          -- External fallback: not local, redirect to the external find page.
+          return some (externalDeclLink name)
+      | _ =>
+        -- External fallback: no current module context to search; redirect.
+        return some (externalDeclLink name)
   else
     return none
   where
