@@ -255,9 +255,13 @@ module_facet docInfo (mod) : FilePath := do
   let bibPrepassJob ← bibPrepass.fetch
   let coreJob ← coreDocs.fetch
   let modJob ← mod.leanArts.fetch
-  -- Build all documentation for imported modules
+  -- Only recurse into imports that belong to the root package; external
+  -- dependencies are not analyzed and their declarations link to the
+  -- external documentation site (see DocGen4.Output.External).
+  let rootPkgName := (← getRootPackage).name
   let imports ← (← mod.imports.fetch).await
-  let depDocJobs := Job.mixArray <| ← imports.mapM fun mod => fetch <| mod.facet `docInfo
+  let ownImports := imports.filter (fun m => m.pkg.name == rootPkgName)
+  let depDocJobs := Job.mixArray <| ← ownImports.mapM fun mod => fetch <| mod.facet `docInfo
   let buildDir := (← getRootPackage).buildDir
   -- Building the documentation info for the module adds or updates the relevant content in the
   -- database. If the dependencies change, then this needs to be re-done. While it would be possible
