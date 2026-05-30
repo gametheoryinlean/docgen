@@ -5,6 +5,7 @@ Authors: Henrik Böving
 -/
 import DocGen4.Process
 import DocGen4.Output.ToHtmlFormat
+import DocGen4.Output.External
 import DocGen4.RenderedCode
 
 namespace DocGen4.Output
@@ -184,10 +185,19 @@ def templateLiftExtends {α β} {m n} [Bind m] [MonadLiftT n m] (base : α → n
   new >>= (monadLift ∘ base)
 /--
 Returns the doc-gen4 link to a module name.
+
+If `n` is a locally-documented module (present in the site `Hierarchy`), the
+result is a relative path to that module's generated HTML. Otherwise — i.e.
+the module belongs to an external library that doc-gen4 did not analyze — the
+result is a link to the corresponding page on the external documentation site
+(see `DocGen4.Output.External`).
 -/
 def moduleNameToLink (n : Name) : BaseHtmlM String := do
-  let parts := n.components.map (Name.toString (escape := False))
-  return (← getRoot) ++ (parts.intersperse "/").foldl (· ++ ·) "" ++ ".html"
+  if (← getHierarchy).contains n then
+    let parts := n.components.map (Name.toString (escape := False))
+    return (← getRoot) ++ (parts.intersperse "/").foldl (· ++ ·) "" ++ ".html"
+  else
+    return externalModuleLink n
 
 /--
 Returns the HTML doc-gen4 link to a module name.
@@ -321,8 +331,12 @@ non-private name in `name2ModIdx`). If so, it links directly to that name. If no
    names like match discriminant functions (`Foo.bar.match_1` → `Foo.bar`).
 2. **Module link**: For private names where no declaration was found, extract the module name from
    the private prefix and link to the module page (e.g., `_private.Init.Prelude.0.Foo` → module
-   `Init.Prelude`).
-3. **Give up**: Wrap in `<span class="fn">` with no link.
+   `Init.Prelude`). `moduleNameToLink` itself decides local-vs-external.
+3. **External fallback**: Emit `<a href={externalDeclLink nameToSearch}>` — the external Mathlib
+   `find` redirect resolves the owning module client-side. The user-facing name (post
+   `privateToUserName?`) is used so private internal names are not leaked into the URL. See
+   `DocGen4.Output.External` for the URL form, and `docs/dev/design/external-linking.md` for the
+   rationale.
 -/
 partial def renderedCodeToHtmlAux (code : RenderedCode) : HtmlM (Bool × Array Html) := do
   match code with
@@ -366,11 +380,18 @@ partial def renderedCodeToHtmlAux (code : RenderedCode) : HtmlM (Bool × Array H
               else
                 return (true, #[<a href={link}>[innerHtml]</a>])
             else
-              -- Step 3: Give up
-              return (innerHasAnchor, fn innerHtml)
+              -- Step 3: External fallback (use the user-facing name; the
+              -- external site's `find` redirect resolves the owning module).
+              if innerHasAnchor then
+                return (true, innerHtml)
+              else
+                return (true, #[<a href={externalDeclLink nameToSearch}>[innerHtml]</a>])
           | none =>
-            -- Step 3: Give up
-            return (innerHasAnchor, fn innerHtml)
+            -- Step 3: External fallback
+            if innerHasAnchor then
+              return (true, innerHtml)
+            else
+              return (true, #[<a href={externalDeclLink nameToSearch}>[innerHtml]</a>])
     | .sort _ =>
       let link := s!"{← getRoot}foundational_types.html"
       -- Avoid nested anchors

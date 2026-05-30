@@ -73,6 +73,20 @@ def walCheckpoint (dbPath : String) : IO Unit := do
   db.exec "PRAGMA wal_checkpoint(TRUNCATE)"
   db.exec "PRAGMA optimize"
 
+/--
+Subcommand: generate HTML documentation from the populated SQLite database.
+
+This is the second-stage entry point. The first stage (`single` / `genCore`) populated the DB;
+this stage reads it once and emits HTML for the modules we actually analyzed.
+
+The `targetModules` selection is the subtle part: `getTransitiveImports` returns every module
+referenced as an import in `module_imports`, which includes external dependency modules that were
+named as import targets but never analyzed by `single` (their `modules` row was never written by
+`db.saveModule`). Without filtering, `htmlOutputResultsParallel` would call `db.loadModule` on
+those names, get back an empty `Process.Module`, and emit empty HTML stubs (`MD4Lean.html`,
+`SQLite.html`, etc.). We intersect with the analyzed set (`linkCtx.moduleNames` — sourced from the
+`modules` table) to skip them. See `docs/dev/design/external-linking.md`.
+-/
 def runFromDbCmd (p : Parsed) : IO UInt32 := do
   let buildDir := match p.flag? "build" with
     | some dir => dir.as! String
@@ -88,12 +102,19 @@ def runFromDbCmd (p : Parsed) : IO UInt32 := do
   let db ← openForReading dbPath builtinDocstringValues
   let linkCtx ← db.loadLinkingContext
 
-  -- Determine which modules to generate HTML for
+  -- Determine which modules to generate HTML for.
+  -- We intersect with linkCtx.moduleNames so that modules merely referenced via
+  -- module_imports (but never analyzed by `single`, e.g. external dependencies)
+  -- do not produce empty stub HTML pages.
+  let analyzedSet : Std.HashSet Name :=
+    Std.HashSet.insertMany (Std.HashSet.emptyWithCapacity linkCtx.moduleNames.size)
+      linkCtx.moduleNames
   let targetModules ←
     if moduleRoots.isEmpty then
       pure linkCtx.moduleNames
-    else
-      db.getTransitiveImports moduleRoots
+    else do
+      let closure ← db.getTransitiveImports moduleRoots
+      pure (closure.filter analyzedSet.contains)
 
   let baseConfig ← getSimpleBaseContext buildDir (Hierarchy.fromArray targetModules)
   -- Add `references` pseudo-module to hierarchy only when bibliography data exists
