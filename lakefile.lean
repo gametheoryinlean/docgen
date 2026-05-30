@@ -11,20 +11,23 @@ lean_exe «doc-gen4» {
   supportInterpreter := true
 }
 
+-- Deps pinned to the exact commits from doc-gen4's v4.30.0 lake-manifest so this
+-- external-linking branch stays reproducible and v4.30.0-compatible regardless of
+-- where the upstream floating refs ("main"/"nightly-testing") have since moved.
 require MD4Lean from git
-  "https://github.com/acmepjz/md4lean" @ "main"
+  "https://github.com/acmepjz/md4lean" @ "6a3fb240133bcb7e1a066fdc784b3fdc304e3fc5"
 
 require BibtexQuery from git
-  "https://github.com/dupuisf/BibtexQuery" @ "nightly-testing"
+  "https://github.com/dupuisf/BibtexQuery" @ "5d31b64fb703c5d77f6ef4d1fb958f9bdf1ea539"
 
 require «UnicodeBasic» from git
-  "https://github.com/fgdorais/lean4-unicode-basic" @ "main"
+  "https://github.com/fgdorais/lean4-unicode-basic" @ "f8c99ff779ec217063545b3b191747c92e7fbfb3"
 
 require Cli from git
-  "https://github.com/leanprover/lean4-cli" @ "main"
+  "https://github.com/leanprover/lean4-cli" @ "6b907cf12b2e445ccb7c24bc208ef04a1f39e84c"
 
 require leansqlite from git
-  "https://github.com/leanprover/leansqlite" @ "main"
+  "https://github.com/leanprover/leansqlite" @ "a1d21d8b5f230205bb04c3bff479383f66802c0b"
 
 /--
 Obtains the subdirectory of the Lean package relative to the root of the enclosing git repository.
@@ -222,12 +225,17 @@ module_facet docInfo (mod) : FilePath := do
   let exeJob ← «doc-gen4».fetch
   let bibPrepassJob ← bibPrepass.fetch
   let modJob ← mod.leanArts.fetch
-  -- Only recurse into imports that belong to the root package; external
-  -- dependencies are not analyzed and their declarations link to the
-  -- external documentation site (see DocGen4.Output.External).
-  let rootPkgName := (← getRootPackage).baseName
+  -- Only recurse into imports that belong to the SAME package as this module;
+  -- external dependencies (Mathlib, Lean core, etc.) are not analyzed and their
+  -- declarations link to the external documentation site (see
+  -- DocGen4.Output.External). We compare against `mod.pkg`, not the workspace
+  -- root package: under the recommended nested `docbuild/` layout the root
+  -- package is `docbuild`, while the library being documented lives in a
+  -- path-required dependency, so a root-package check would treat every one of
+  -- its own modules as external and emit only the single entry-point page.
+  let ownPkgName := mod.pkg.baseName
   let imports ← (← mod.imports.fetch).await
-  let ownImports := imports.filter (fun m => m.pkg.baseName == rootPkgName)
+  let ownImports := imports.filter (fun m => m.pkg.baseName == ownPkgName)
   let depDocJobs := Job.mixArray <| ← ownImports.mapM fun mod => fetch <| mod.facet `docInfo
   let buildDir := (← getRootPackage).buildDir
   -- Building the documentation info for the module adds or updates the relevant content in the
