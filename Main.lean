@@ -88,12 +88,19 @@ def runFromDbCmd (p : Parsed) : IO UInt32 := do
   let db ← openForReading dbPath builtinDocstringValues
   let linkCtx ← db.loadLinkingContext
 
-  -- Determine which modules to generate HTML for
+  -- Determine which modules to generate HTML for.
+  -- We intersect with linkCtx.moduleNames so that modules merely referenced via
+  -- module_imports (but never analyzed by `single`, e.g. external dependencies)
+  -- do not produce empty stub HTML pages.
+  let analyzedSet : Std.HashSet Name :=
+    Std.HashSet.insertMany (Std.HashSet.emptyWithCapacity linkCtx.moduleNames.size)
+      linkCtx.moduleNames
   let targetModules ←
     if moduleRoots.isEmpty then
       pure linkCtx.moduleNames
-    else
-      db.getTransitiveImports moduleRoots
+    else do
+      let closure ← db.getTransitiveImports moduleRoots
+      pure (closure.filter analyzedSet.contains)
 
   let baseConfig ← getSimpleBaseContext buildDir (Hierarchy.fromArray targetModules)
   -- Add `references` pseudo-module to hierarchy only when bibliography data exists
