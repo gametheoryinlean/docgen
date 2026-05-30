@@ -59,4 +59,24 @@ def externalModuleLink (mod : Lean.Name) : String :=
   let parts := mod.components.map (Lean.Name.toString (escape := false))
   externalDocBase ++ "/".intercalate parts ++ ".html"
 
+/--
+Decide whether a `Name` is worth emitting as an external find-redirect link.
+
+The Lean pretty printer occasionally tags single-character identifiers
+(bound variable names like `x`, `n`, `c`) and numeric literals (`0`, `3`)
+with declaration metadata. When such a tag falls through to the external
+fallback in `renderedCodeToHtmlAux`, the resulting
+`find/?pattern=<token>#doc` URL is guaranteed to 404 on the external site.
+We filter those out and let the caller emit an un-linked span instead.
+
+Rule: a name is linkable if every component contains at least one
+alphabetic character AND the joined display form is at least two
+characters long. This keeps real short names like `Eq`, `IO`, `Id`
+linkable while dropping single-character bound variables and pure-numeric
+tokens.
+-/
+def isLinkableExternalName (name : Lean.Name) : Bool :=
+  let s := name.toString
+  s.length ≥ 2 && s.any Char.isAlpha
+
 end DocGen4.Output

@@ -382,16 +382,22 @@ partial def renderedCodeToHtmlAux (code : RenderedCode) : HtmlM (Bool × Array H
             else
               -- Step 3: External fallback (use the user-facing name; the
               -- external site's `find` redirect resolves the owning module).
+              -- Skip linking for names too short / non-alpha to be real decls
+              -- (e.g. bound-variable letters, numeric literals).
               if innerHasAnchor then
                 return (true, innerHtml)
-              else
+              else if isLinkableExternalName nameToSearch then
                 return (true, #[<a href={externalDeclLink nameToSearch}>[innerHtml]</a>])
+              else
+                return (innerHasAnchor, fn innerHtml)
           | none =>
             -- Step 3: External fallback
             if innerHasAnchor then
               return (true, innerHtml)
-            else
+            else if isLinkableExternalName nameToSearch then
               return (true, #[<a href={externalDeclLink nameToSearch}>[innerHtml]</a>])
+            else
+              return (innerHasAnchor, fn innerHtml)
     | .sort _ =>
       let link := s!"{← getRoot}foundational_types.html"
       -- Avoid nested anchors

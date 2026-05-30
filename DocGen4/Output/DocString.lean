@@ -85,11 +85,18 @@ def nameToLink? (s : String) : HtmlM (Option String) := do
         if let some info := info? then
           declNameToLink info.getName
         else
-          -- External fallback: not local, redirect to the external find page.
-          return some (externalDeclLink name)
+          -- External fallback: redirect only if the token looks like a real decl
+          -- name. Single-char / numeric tokens are pretty-printer noise and
+          -- would 404 on the external site.
+          if isLinkableExternalName name then
+            return some (externalDeclLink name)
+          else
+            return none
       | _ =>
-        -- External fallback: no current module context to search; redirect.
-        return some (externalDeclLink name)
+        if isLinkableExternalName name then
+          return some (externalDeclLink name)
+        else
+          return none
   else
     return none
   where
