@@ -299,7 +299,10 @@ library_facet docsHeader (lib) : FilePath := do
 
 /--
 Generate HTML documentation for the given root modules.
-Fetches docInfo for all roots, ensures core docs are built, then runs a single `fromDb` process.
+Fetches docInfo for all roots, then runs a single `fromDb` process. Only the
+root package's modules are documented; external dependencies and Lean core
+are linked to the external documentation site instead (see
+`DocGen4.Output.External`).
 Returns an array of all generated file paths.
 -/
 def generateHtmlDocs (markerName : String) (rootMods : Array Module) (description : String) : FetchM (Job (Array FilePath)) := do
@@ -335,8 +338,7 @@ def generateHtmlDocs (markerName : String) (rootMods : Array Module) (descriptio
     basePath / "find" / "index.html",
     basePath / "find" / "find.js"
   ]
-  let coreRoots := #[`Init, `Std, `Lake, `Lean]
-  let rootNames := rootMods.map (·.name) ++ coreRoots
+  let rootNames := rootMods.map (·.name)
   let manifestFile := buildDir / "doc-manifest.json"
   docInfoJobs.bindM fun _ => do
     bibPrepassJob.bindM fun _ => do
