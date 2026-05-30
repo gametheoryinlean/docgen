@@ -77,5 +77,33 @@ partial def insert! (h : Hierarchy) (n : Name) : Hierarchy := Id.run do
 partial def fromArray (names : Array Name) : Hierarchy :=
   names.foldl insert! (empty anonymous false)
 
+/--
+Returns `true` if `n` was inserted into `h` as a file (i.e. was one of the
+names passed to `fromArray` / `insert!`). Intermediate "container" nodes that
+were synthesized to host children but never inserted as files themselves
+return `false`.
+
+Used by `moduleNameToLink` to decide local-vs-external linking: a module
+present here goes through the relative URL path; anything else falls back to
+the external documentation site.
+-/
+partial def contains (h : Hierarchy) (n : Name) : Bool :=
+  let hn := h.getName
+  let cs := h.getChildren
+  let hParts := getNumParts hn
+  let nParts := getNumParts n
+  if hParts + 1 == nParts then
+    match cs.find Name.cmp n with
+    | none => false
+    | some child => child.isFile
+  else if hParts >= nParts then
+    -- We've descended past the target's depth; no match possible.
+    false
+  else
+    let leveledName := getNLevels n (hParts + 1)
+    match cs.find Name.cmp leveledName with
+    | none => false
+    | some nextLevel => nextLevel.contains n
+
 end Hierarchy
 end DocGen4
