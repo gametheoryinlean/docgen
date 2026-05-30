@@ -331,8 +331,12 @@ non-private name in `name2ModIdx`). If so, it links directly to that name. If no
    names like match discriminant functions (`Foo.bar.match_1` → `Foo.bar`).
 2. **Module link**: For private names where no declaration was found, extract the module name from
    the private prefix and link to the module page (e.g., `_private.Init.Prelude.0.Foo` → module
-   `Init.Prelude`).
-3. **Give up**: Wrap in `<span class="fn">` with no link.
+   `Init.Prelude`). `moduleNameToLink` itself decides local-vs-external.
+3. **External fallback**: Emit `<a href={externalDeclLink nameToSearch}>` — the external Mathlib
+   `find` redirect resolves the owning module client-side. The user-facing name (post
+   `privateToUserName?`) is used so private internal names are not leaked into the URL. See
+   `DocGen4.Output.External` for the URL form, and `docs/dev/design/external-linking.md` for the
+   rationale.
 -/
 partial def renderedCodeToHtmlAux (code : RenderedCode) : HtmlM (Bool × Array Html) := do
   match code with

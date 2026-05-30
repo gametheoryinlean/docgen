@@ -20,7 +20,16 @@ resolve the owning module client-side, so we don't need to know it.
 To point this at a different external site (e.g. a private Mathlib mirror or
 an entirely different ecosystem), edit `externalDocBase` below. This is
 intentionally a Lean constant rather than an environment variable so the
-behavior is reproducible and reviewable.
+behavior is reproducible and reviewable. See
+`docs/dev/design/external-linking.md` for the full rationale.
+
+Callers:
+- `DocGen4.Output.moduleNameToLink` — external module link when the module
+  is not in the local `Hierarchy`.
+- `DocGen4.Output.renderedCodeToHtmlAux` — external decl link in the Step 3
+  fallback when `name2ModIdx` doesn't resolve the name.
+- `DocGen4.Output.nameToLink?` — external decl link as the final fallback
+  for docstring identifier references.
 -/
 
 namespace DocGen4.Output

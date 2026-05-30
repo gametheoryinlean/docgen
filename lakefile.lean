@@ -217,6 +217,11 @@ Places the module's documentation content into the package's documentation datab
 
 Returns a marker file that indicates the database has been populated for this module.
 The marker file participates in Lake's dependency tracking, allowing for incremental updates.
+
+This facet only recurses into imports that belong to the **same package** as the root build
+(`mod.pkg.baseName == (← getRootPackage).baseName`). External dependencies and Lean core are
+NOT analyzed; references to their declarations are rewritten as external links by the HTML
+generator. See `docs/dev/design/external-linking.md` and `DocGen4.Output.External`.
 -/
 module_facet docInfo (mod) : FilePath := do
   let exeJob ← «doc-gen4».fetch
@@ -254,7 +259,8 @@ module_facet docInfo (mod) : FilePath := do
           return markerFile
 
 /--
-Populates the database with information for all modules in a library.
+Populates the database with information for all modules in a library. Filtering of external
+imports happens inside `module_facet docInfo` (one level down).
 -/
 library_facet docInfo (lib) : Array FilePath := do
   let mods ← (← lib.modules.fetch).await
